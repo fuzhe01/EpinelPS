@@ -1,11 +1,17 @@
-﻿using DnsClient;
+using DnsClient;
 using System.Net;
 
 namespace EpinelPS.Utils;
 
 public class AssetDownloadUtil
 {
-    public static readonly HttpClient AssetDownloader = new(new HttpClientHandler() { AutomaticDecompression = DecompressionMethods.All });
+    // NOTE (local build patch): the default HttpClient timeout of 100 s aborts any
+    // CDN transfer larger than ~14 MB on a slow (~130 KB/s) link, which breaks
+    // asset downloads and therefore the game client. Use a long timeout instead.
+    public static readonly HttpClient AssetDownloader = new(new HttpClientHandler() { AutomaticDecompression = DecompressionMethods.All })
+    {
+        Timeout = TimeSpan.FromMinutes(30)
+    };
 
     private static string? CloudIp;
     public static async Task<string?> DownloadOrGetFileAsync(string url, CancellationToken cancellationToken)
@@ -67,6 +73,28 @@ public class AssetDownloadUtil
 
     public static async Task<string> GetIpAsync(string query)
     {
+        // Local build patch: prefer the OS resolver so hosts pins are honoured
+        // (cloud.nikke-kr.com is regionally blackholed upstream -> black.nikke-kr.com
+        // -> 0.0.0.1 for mainland clients, while hosts pins the real CloudFront IPs).
+        // Fall back to a direct DNS query when the hosts entry points at localhost,
+        // because ServerSelector redirects the lobby domains to 127.0.0.1.
+        try
+        {
+            IPAddress[] resolved = Dns.GetHostAddresses(query);
+            IPAddress? v4 = resolved.FirstOrDefault(a =>
+                a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+
+            if (v4 != null && !IPAddress.IsLoopback(v4) &&
+                !v4.Equals(IPAddress.Any) && !v4.Equals(IPAddress.None))
+            {
+                return v4.ToString();
+            }
+        }
+        catch
+        {
+            // fall through to the direct DNS query below
+        }
+
         LookupClient lookup = new();
         IDnsQueryResponse result = await lookup.QueryAsync(query, QueryType.A);
 

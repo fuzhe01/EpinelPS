@@ -156,6 +156,40 @@ internal class Program
 
             // app.UseHttpsRedirection();
 
+            // Diagnostic request logger (local build patch): records host + path + status
+            // for every incoming request so launcher/client connectivity issues are visible.
+            app.Use(async (ctx, next) =>
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                await next();
+                Console.WriteLine($"[REQ] {ctx.Request.Method} {ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.Path}{ctx.Request.QueryString} -> {ctx.Response.StatusCode} ({sw.ElapsedMilliseconds}ms)");
+            });
+
+            // Local build patch: the launcher's downloader (tinyget) performs a telemetry call
+            // (https://na.fleetlogd.com/fleet.repo.game.ReportGather/GuestReport) before the
+            // "Catalogue resource path upgrade" step. ServerSelector blackholes that host, so the
+            // call never succeeds, the retry strategies are exhausted and the launcher shows
+            // "系统错误". Answer such telemetry calls with a success envelope so they stop failing.
+            app.Use(async (ctx, next) =>
+            {
+                string path = ctx.Request.Path.Value ?? "";
+                string host = ctx.Request.Host.Host ?? "";
+                bool isTelemetry =
+                    path.Contains("ReportGather", StringComparison.OrdinalIgnoreCase) ||
+                    (host.Contains("fleetlogd", StringComparison.OrdinalIgnoreCase) &&
+                     path.Contains("Report", StringComparison.OrdinalIgnoreCase));
+
+                if (isTelemetry)
+                {
+                    ctx.Response.StatusCode = 200;
+                    ctx.Response.ContentType = "application/json";
+                    await ctx.Response.WriteAsync("{\"result\":{\"error_code\":0,\"error_message\":\"COMM_SUCC\"}}");
+                    return;
+                }
+
+                await next();
+            });
+
             app.UseAuthorization();
             //app.UseHttpsRedirection();
             app.UseRouting();

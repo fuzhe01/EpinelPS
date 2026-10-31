@@ -1,4 +1,4 @@
-﻿using EpinelPS.Database;
+using EpinelPS.Database;
 using EpinelPS.Utils;
 using Microsoft.AspNetCore.Mvc;
 using Paseto;
@@ -110,6 +110,11 @@ public class AccountController(GameContext DbContext) : ControllerBase
             ID = uid // todo remove later
         });
         dbContext.SaveChanges();
+
+        // Local build patch: upstream forgot this call here, so a launcher-registered user
+        // existed only in memory and silently vanished on the next server restart
+        // (the game then fails /v1/auth/intl with "Invalid user data!!").
+        JsonDb.Save();
 
         AccessToken tok = CreateLauncherTokenForUser(uid);
 

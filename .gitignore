@@ -458,4 +458,9 @@ $RECYCLE.BIN/
 !ServerSelector/myCA.pfx
 !ServerSelector/sodium.dll
 
-EpinelPS/Protos/allmsgs.proto
+EpinelPS/Protos/allmsgs.proto# ===== 本地私服专用（不提交到 upstream）=====
+/out/
+out.bak-*/
+/Patch/
+github-token.txt
+/config.json
