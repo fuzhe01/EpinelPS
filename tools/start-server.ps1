@@ -17,9 +17,9 @@ Get-Process -Name EpinelPS -ErrorAction SilentlyContinue | ForEach-Object {
 }
 Start-Sleep -Seconds 2
 
-# 启动（最小化窗口，方便查看/关闭）
+# 启动（--headless 跳过"发现新版本 Y/N"交互提问，否则会卡住永不监听端口）
 Write-Host "      Launching EpinelPS.exe ..."
-Start-Process -FilePath $Exe -WorkingDirectory $ServerDir -WindowStyle Minimized
+& cmd.exe /c "start `"EpinelPS`" /MIN /D `"$ServerDir`" `"$Exe`" --headless"
 
 # 等待 443 就绪，最多 60 秒
 Write-Host "      Waiting for port 443 ..."

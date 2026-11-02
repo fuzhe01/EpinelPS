@@ -1,4 +1,4 @@
-﻿using EpinelPS.Database;
+using EpinelPS.Database;
 using EpinelPS.Utils;
 using Microsoft.AspNetCore.Mvc;
 using System.Reflection;
@@ -159,7 +159,15 @@ public class LevelInfiniteControlller : Controller
     [Route("gnconfig/acquire_config")]
     public string AcquireConfig(string seq)
     {
-        return "{\"ret\":23111202,\"msg\":\"no matched config error( [match logic]no match )\",\"rule_id\":\"\",\"resource_list\":\"\",\"sdk_enable\":0,\"sdk_debug_enable\":0,\"report_log_enable\":0,\"log_level\":0,\"inner_seq\":\"" + seq + "\",\"ab_test\":{\"id\":\"\",\"group\":\"\"},\"seq\":\"" + seq + "\"}";
+        // Local build patch: upstream returned ret=23111202 "no matched config error" with
+        // sdk_enable=0. Newer game clients treat that as a fatal SDK failure:
+        //   OnGameNativeSDKError code=101002 -> [SDK] INTL result failed retCode=1002
+        //   -> "Login failed, please login from launcher again."
+        // Return a successful configuration with sdk_enable=0.
+        // ret=0 avoids the "Login failed" fatal path (code 101002 / retCode 1002),
+        // while sdk_enable=0 keeps the SDK from starting additional flows that
+        // this server does not implement.
+        return "{\"ret\":0,\"msg\":\"success\",\"rule_id\":\"\",\"resource_list\":\"\",\"sdk_enable\":0,\"sdk_debug_enable\":0,\"report_log_enable\":0,\"log_level\":0,\"inner_seq\":\"" + seq + "\",\"ab_test\":{\"id\":\"\",\"group\":\"\"},\"seq\":\"" + seq + "\"}";
     }
 
     [HttpPost]

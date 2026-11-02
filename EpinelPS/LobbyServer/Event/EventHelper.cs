@@ -233,7 +233,50 @@ public class EventHelper
         // Priority 3: fallback to the latest event
         if (lobbyPrivateBanners.Count == 0)
         {
-            lobbyPrivateBanners.Add(lobbyPrivateBannerRecords.Last());
+            // Local build patch: the newest banner in the static data may reference an event whose
+            // sprite table (e.g. "event_261119", a 2026-11-19 event) does not exist in the installed
+            // game client. Selecting it makes the lobby's Home view fail to prepare with
+            // FileNotFoundException and the client spin until memory is exhausted.
+            //
+            // We cannot know which sprite tables the client has, so we treat any resource table whose
+            // embedded date is in the FUTURE (YYMMDD > today) as unusable, and pick the newest banner
+            // that is not blocked by one.
+            var today = int.Parse(DateTime.Now.ToString("yyMMdd"));
+
+            bool IsResourceFromFuture(string? table)
+            {
+                if (string.IsNullOrEmpty(table)) return false;
+                // Expected forms: "event_261119", "event_261119_xxx"
+                var m = System.Text.RegularExpressions.Regex.Match(table, @"event_(\d{6})");
+                if (!m.Success) return false;
+                var yymmdd = int.Parse(m.Groups[1].Value);
+                return yymmdd > today;
+            }
+
+            var candidates = lobbyPrivateBannerRecords.OrderByDescending(b => b.Id).ToList();
+            var chosen = candidates.FirstOrDefault(b =>
+            {
+                var tables = GameData.Instance.eventManagers.Values
+                    .Where(em => (em.SetField == b.EventId || em.ParentsEventId == b.EventId)
+                                 && !string.IsNullOrEmpty(em.EventBannerResourceTable))
+                    .Select(em => em.EventBannerResourceTable!)
+                    .Distinct()
+                    .ToList();
+
+                if (tables.Count == 0) return false;
+                // Reject banners that reference any future-dated sprite table.
+                return !tables.Any(IsResourceFromFuture);
+            });
+
+            if (chosen != null)
+            {
+                lobbyPrivateBanners.Add(chosen);
+                Logging.WriteLine($"Fallback banner selected: Id={chosen.Id}, EventId={chosen.EventId}, Resource={chosen.PrivateBannerResource} (today={today})", LogType.Info);
+            }
+            else
+            {
+                Logging.WriteLine($"No usable lobby private banner found (today={today}); lobby will render without banner.", LogType.Warning);
+            }
         }
         Logging.WriteLine($"Found {lobbyPrivateBanners.Count} active lobby private banners.", LogType.Debug);
         log.Debug($"Active lobby private banners: {JsonConvert.SerializeObject(lobbyPrivateBanners)}");

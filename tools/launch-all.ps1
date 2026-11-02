@@ -243,7 +243,7 @@ Step 5 '启动 EpinelPS 服务端...'
 if (-not (Test-Path $ServerExe)) { Warn2 "找不到: $ServerExe"; exit 1 }
 
 # 必须用 cmd start（Start-Process 在非交互会话会阻塞）
-& cmd.exe /c "start `"EpinelPS`" /MIN /D `"$ServerDir`" `"$ServerExe`""
+& cmd.exe /c "start `"EpinelPS`" /MIN /D `"$ServerDir`" `"$ServerExe`" --headless"
 $ok = $false
 for ($i = 1; $i -le 60; $i++) {
     Start-Sleep -Seconds 1
