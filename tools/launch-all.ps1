@@ -94,9 +94,14 @@ if ($SkipUpdate) {
     $remote = $null
     if (Test-Path $CheckUpdate) {
         try {
+            # check-update.ps1 -Json 只输出一行紧凑 JSON（无其他文本）
             $json = & pwsh -NoProfile -ExecutionPolicy Bypass -File $CheckUpdate -Json 2>$null
-            $remote = ($json -join "`n") | ConvertFrom-Json
-        } catch { Warn2 "检查更新失败: $_" }
+            $line = ($json | Where-Object { $_ -match '^\s*\{' } | Select-Object -First 1)
+            if ($line) { $remote = $line | ConvertFrom-Json }
+            else { Warn2 "更新检查返回空结果" }
+        } catch {
+            Warn2 "检查更新失败: $($_.Exception.Message)"
+        }
     }
 
     if (-not $remote -or $remote.error) {

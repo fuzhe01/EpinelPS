@@ -120,17 +120,19 @@ if ($result.Url -and $result.Size -eq 0) {
     } catch { Write-Verbose "HEAD 失败: $_" }
 }
 
+# -Json 模式：只输出 JSON，不输出任何其他内容（否则调用方解析会失败）
 if ($Json) {
-    $result | ConvertTo-Json -Depth 3
-} else {
-    Write-Host "更新源 : $($result.Source)" -ForegroundColor Cyan
-    Write-Host "版本   : $($result.Version)"
-    Write-Host "Tag    : $($result.Tag)"
-    if ($result.Asset)  { Write-Host "文件   : $($result.Asset)" }
-    if ($result.Size)   { Write-Host ("大小   : {0:N1} MB" -f ($result.Size/1MB)) }
-    if ($result.Sha256) { Write-Host "SHA256 : $($result.Sha256.Substring(0,16))..." }
-    if ($result.Url)    { Write-Host "下载   : $($result.Url)" }
-    if ($result.Notes)  { Write-Host "说明   : $($result.Notes -replace "`n", ' ')" }
+    Write-Output ($result | ConvertTo-Json -Depth 3 -Compress)
+    exit 0
 }
 
-return $result
+Write-Host "更新源 : $($result.Source)" -ForegroundColor Cyan
+Write-Host "版本   : $($result.Version)"
+Write-Host "Tag    : $($result.Tag)"
+if ($result.Asset)  { Write-Host "文件   : $($result.Asset)" }
+if ($result.Size)   { Write-Host ("大小   : {0:N1} MB" -f ($result.Size/1MB)) }
+if ($result.Sha256) { Write-Host "SHA256 : $($result.Sha256.Substring(0,16))..." }
+if ($result.Url)    { Write-Host "下载   : $($result.Url)" }
+if ($result.Notes)  { Write-Host "说明   : $($result.Notes -replace "`n", ' ')" }
+
+exit 0
