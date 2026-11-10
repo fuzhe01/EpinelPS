@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 
 namespace EpinelPS.Controllers;
 
@@ -65,6 +65,11 @@ public class LauncherController : Controller
 
     [HttpPost]
     [Route("fleet.repo.game.RepoSVC/GetGameLauncher")]
+    // Local build patch: the real launcher requests this endpoint under "RepoMgr"
+    // (fleet.repo.game.RepoMgr/GetGameLauncher), not "RepoSVC". Keeping only the RepoSVC
+    // route left the launcher with a 404 and made its announcement dialog show
+    // "系统错误". Both spellings are now served.
+    [Route("fleet.repo.game.RepoMgr/GetGameLauncher")]
     public string LauncherGetLauncher()
     {
         return @"{
@@ -97,6 +102,23 @@ public class LauncherController : Controller
         }
 
         return System.IO.File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gameversion.json"));
+    }
+
+    [HttpPost]
+    // Local build patch: the launcher polls Payment/GetActivityStatus. The upstream server
+    // never implemented it, so the call returned 404 and the launcher surfaced
+    // "系统错误" (system error) in its announcement dialog. Answer with a successful
+    // but empty activity list instead: there are no paid promotions on a private server.
+    [Route("fleet.billing.game.Payment/GetActivityStatus")]
+    public string LauncherGetActivityStatus()
+    {
+        return @"{
+    ""result"": {
+        ""error_code"": 0,
+        ""error_message"": ""COMM_SUCC""
+    },
+    ""activity_status"": []
+}";
     }
 
     public class LauncherVersionRequest
