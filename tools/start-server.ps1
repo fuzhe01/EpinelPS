@@ -18,6 +18,12 @@ Get-Process -Name EpinelPS -ErrorAction SilentlyContinue | ForEach-Object {
 Start-Sleep -Seconds 2
 
 # 启动（--headless 跳过"发现新版本 Y/N"交互提问，否则会卡住永不监听端口）
+# 先确保 TLS 证书在 CurrentUser\My：服务端从证书库按指纹加载，不再解析 site.pfx。
+$certScript = 'D:\EpinelPS\tools\install-cert.ps1'
+if (Test-Path $certScript) {
+    & pwsh -NoProfile -File $certScript -Quiet
+    if ($LASTEXITCODE -ne 0) { Write-Host "      WARN: TLS cert setup failed" }
+}
 Write-Host "      Launching EpinelPS.exe ..."
 & cmd.exe /c "start `"EpinelPS`" /MIN /D `"$ServerDir`" `"$Exe`" --headless"
 

@@ -242,6 +242,14 @@ if (Test-Path $Patcher) {
 Step 5 '启动 EpinelPS 服务端...'
 if (-not (Test-Path $ServerExe)) { Warn2 "找不到: $ServerExe"; exit 1 }
 
+# TLS 证书必须先在 CurrentUser\My：服务端在本机解析 site.pfx 会失败
+# （PKCS#12 报"指定的网络密码不正确"/"拒绝访问"），改为从证书库按指纹加载。
+$certScript = Join-Path $Root 'tools\install-cert.ps1'
+if (Test-Path $certScript) {
+    & pwsh -NoProfile -File $certScript -Quiet
+    if ($LASTEXITCODE -ne 0) { Warn2 'TLS 证书准备失败，服务端可能无法监听 443' }
+}
+
 # 必须用 cmd start（Start-Process 在非交互会话会阻塞）
 & cmd.exe /c "start `"EpinelPS`" /MIN /D `"$ServerDir`" `"$ServerExe`" --headless"
 $ok = $false

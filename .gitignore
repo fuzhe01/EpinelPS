@@ -465,3 +465,8 @@ out.bak-*/
 github-token.txt
 /config.json
 tools/sdwork/
+
+# TLS 私钥（由 install-cert.ps1 处理，不入库）
+server.key
+server.crt
+ca.crt

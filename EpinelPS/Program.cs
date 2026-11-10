@@ -66,12 +66,86 @@ internal class Program
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
             // Configure HTTPS
+            // Local build patch: .NET 10's PKCS12 loader rejects the existing site.pfx
+            // ("the specified network password is not correct") even though the file is a
+            // valid, password-less, AES-256/SHA-256 PKCS#12 (OpenSSL reads it fine).
+            // Prefer loading the certificate from PEM instead — that path skips PKCS#12
+            // parsing entirely — and fall back to the PFX if the PEM pair is absent.
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string pemCertPath = Path.Combine(baseDir, "server.crt");
+            string pemKeyPath = Path.Combine(baseDir, "server.key");
+            string pemCaPath = Path.Combine(baseDir, "ca.crt");
+
+            X509Certificate2 serverCertificate;
+            X509Certificate2Collection? serverChain = null;
+            // Local build patch: parsing the PKCS#12 blob fails inside this application
+            // ("the specified network password is not correct" / "Access is denied") even though
+            // the very same file loads fine from a standalone .NET 10 process and from OpenSSL.
+            // The certificate is therefore imported into the CurrentUser\My store by
+            // tools/install-cert.ps1 and loaded from there, which avoids PKCS#12 parsing and
+            // gives Schannel a persistent private key.
+            const string ServerCertThumbprint = "B8C27EB20A0F128BCA489F58A725B445E9CFCEAC";
+            X509Certificate2? fromStore = null;
+            try
+            {
+                using X509Store store = new(StoreName.My, StoreLocation.CurrentUser);
+                store.Open(OpenFlags.ReadOnly | OpenFlags.OpenExistingOnly);
+                X509Certificate2Collection matches =
+                    store.Certificates.Find(X509FindType.FindByThumbprint, ServerCertThumbprint, false);
+                if (matches.Count > 0)
+                {
+                    fromStore = matches[0];
+                    Console.WriteLine($"[CERT] loaded from CurrentUser\\My store: {fromStore.Thumbprint}");
+                }
+                else
+                {
+                    Console.WriteLine($"[CERT] thumbprint {ServerCertThumbprint} not found in CurrentUser\\My");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CERT] certificate store lookup failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            if (fromStore is not null)
+            {
+                serverCertificate = fromStore;
+            }
+            else if (File.Exists(pemCertPath) && File.Exists(pemKeyPath))
+            {
+                byte[] crtBytes = File.ReadAllBytes(pemCertPath);
+                byte[] keyBytes = File.ReadAllBytes(pemKeyPath);
+                Console.WriteLine($"[CERT] crt {pemCertPath} = {crtBytes.Length} bytes");
+                Console.WriteLine($"[CERT] key {pemKeyPath} = {keyBytes.Length} bytes");
+                string certPem = System.Text.Encoding.ASCII.GetString(crtBytes);
+                string keyPem = System.Text.Encoding.ASCII.GetString(keyBytes);
+                serverCertificate = X509Certificate2.CreateFromPem(certPem, keyPem);
+                Console.WriteLine($"[CERT] loaded PEM {pemCertPath}");
+                if (File.Exists(pemCaPath))
+                {
+                    serverChain = [X509Certificate2.CreateFromPem(File.ReadAllText(pemCaPath))];
+                    Console.WriteLine($"[CERT] loaded CA {pemCaPath}");
+                }
+            }
+            else
+            {
+                string pfxPath = Path.Combine(baseDir, "site.pfx");
+                byte[] pfxBytes = File.ReadAllBytes(pfxPath);
+                Console.WriteLine($"[CERT] loaded PFX {pfxPath} ({pfxBytes.Length} bytes)");
+                serverCertificate = X509CertificateLoader.LoadPkcs12(pfxBytes, null);
+            }
+            Console.WriteLine($"[CERT] subject={serverCertificate.Subject}");
+            Console.WriteLine($"[CERT] thumbprint={serverCertificate.Thumbprint}");
+            Console.WriteLine($"[CERT] hasPrivateKey={serverCertificate.HasPrivateKey}");
+
             HttpsConnectionAdapterOptions httpsConnectionAdapterOptions = new()
             {
                 SslProtocols = System.Security.Authentication.SslProtocols.Tls12,
                 ClientCertificateMode = ClientCertificateMode.AllowCertificate,
-                ServerCertificate = new X509Certificate2(File.ReadAllBytes(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "site.pfx")))
+                ServerCertificate = serverCertificate
             };
+            if (serverChain is not null)
+                httpsConnectionAdapterOptions.ServerCertificateChain = serverChain;
 
             builder.WebHost.ConfigureKestrel(serverOptions =>
             {
@@ -79,7 +153,7 @@ internal class Program
                     listenOptions =>
                     {
                         listenOptions.Protocols = HttpProtocols.Http1AndHttp2AndHttp3;
-                        listenOptions.UseHttps(AppDomain.CurrentDomain.BaseDirectory + @"site.pfx", "");
+                        listenOptions.UseHttps(httpsConnectionAdapterOptions);
                     });
                 serverOptions.Listen(IPAddress.Loopback, 80,
                listenOptions =>
