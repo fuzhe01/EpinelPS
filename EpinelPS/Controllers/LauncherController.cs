@@ -1,3 +1,4 @@
+using EpinelPS.Database;
 using Microsoft.AspNetCore.Mvc;
 
 namespace EpinelPS.Controllers;
@@ -10,21 +11,51 @@ public class LauncherController : Controller
     [Route("fleet.auth.game.AuthSvr/Login")]
     public string LauncherLogin()
     {
+        // Local build patch: upstream returned hardcoded empty credentials
+        // (openid/uid/biz_ticket/login_ticket/login_key all ""). The launcher stores that and
+        // hands an empty token to the game, which then fails with
+        //   [SDK] INTL result failed. methodId 13101, retCode 1002
+        //   "Login failed, please login from launcher again."
+        // Return the real account so the game gets a usable token. On a private server the
+        // first (or only) account is the local player.
+        string openid = string.Empty;
+        string uid = string.Empty;
+        string nickname = string.Empty;
+
+        try
+        {
+            var users = JsonDb.Instance.Users;
+            if (users is { Count: > 0 })
+            {
+                var user = users[0];
+                uid = user.ID.ToString();
+                openid = uid;
+                nickname = user.PlayerName ?? string.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LAUNCHER] failed to read local user: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        Console.WriteLine($"[LAUNCHER] AuthSvr/Login -> uid={uid} openid={openid}");
+
         return @"{
     ""result"": {
         ""error_code"": 0,
         ""error_message"": ""COMM_SUCC""
     },
     ""channel"": 0,
-    ""game_id"": ""0"",
-    ""openid"": """",
-    ""uid"": """",
-    ""biz_ticket"": """",
-    ""expire_interval"": 0,
-    ""refresh_interval"": 0,
-    ""login_key"": """",
-    ""login_ticket"": """",
-    ""third_uid"": """"
+    ""game_id"": ""29080"",
+    ""openid"": """ + openid + @""",
+    ""uid"": """ + uid + @""",
+    ""biz_ticket"": """ + uid + @""",
+    ""expire_interval"": 86400,
+    ""refresh_interval"": 604800,
+    ""login_key"": """ + uid + @""",
+    ""login_ticket"": """ + uid + @""",
+    ""third_uid"": """ + uid + @""",
+    ""user_name"": """ + nickname + @"""
 }";
     }
 

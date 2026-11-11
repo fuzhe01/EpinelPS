@@ -470,3 +470,27 @@ tools/sdwork/
 server.key
 server.crt
 ca.crt
+
+# tools 产物目录（不进版本库）
+audit_out/
+cdb-work/
+*_shots/
+
+# tools 产物目录/数据文件（不进版本库）
+tools/audit_out/
+tools/cdb-work/
+tools/asset-samples/
+tools/contact_sheets/
+tools/norm_test/
+tools/shot_out/
+tools/story_cmp/
+tools/voice-test/
+tools/icon_diag/
+tools/nikketools/
+tools/cdn_vs_local/
+tools/*_shots/
+tools/*.bin
+tools/*.json
+
+# 第三方 GM 工具包（本地保留，不入库）
+NIKKE-GM新版，适配WIN10和11/
