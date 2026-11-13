@@ -5,40 +5,52 @@ namespace EpinelPS.Controllers;
 
 [Route("/api/v1")]
 [ApiController]
-public class LauncherController : Controller
+public class LauncherController(GameContext dbContext) : Controller
 {
+    private readonly GameContext _dbContext = dbContext;
+
     [HttpPost]
     [Route("fleet.auth.game.AuthSvr/Login")]
     public string LauncherLogin()
     {
         // Local build patch: upstream returned hardcoded empty credentials
-        // (openid/uid/biz_ticket/login_ticket/login_key all ""). The launcher stores that and
-        // hands an empty token to the game, which then fails with
+        // (openid/uid/biz_ticket/login_ticket/login_key all ""). The launcher hands those to the
+        // Level Infinite SDK, which passes them to the game as the account token. With an empty
+        // (or non-PASETO) value NetUtils.GetUser cannot decode it and the game shows
         //   [SDK] INTL result failed. methodId 13101, retCode 1002
         //   "Login failed, please login from launcher again."
-        // Return the real account so the game gets a usable token. On a private server the
-        // first (or only) account is the local player.
+        //
+        // The token the server actually validates is the PASETO v4 local token produced by
+        // AccountController.CreateLauncherTokenForUser, so we emit that here. This makes the
+        // launcher's login self-sufficient: no manual /account/login call is needed.
         string openid = string.Empty;
         string uid = string.Empty;
         string nickname = string.Empty;
+        string token = string.Empty;
 
         try
         {
-            var users = JsonDb.Instance.Users;
-            if (users is { Count: > 0 })
+            // SQLite cannot ORDER BY a ulong column, so materialise first and sort in memory.
+            var sdkUser = _dbContext.SdkUsers.ToList().OrderBy(u => u.ID).FirstOrDefault();
+            if (sdkUser is not null)
             {
-                var user = users[0];
-                uid = user.ID.ToString();
+                uid = sdkUser.ID.ToString();
                 openid = uid;
-                nickname = user.PlayerName ?? string.Empty;
+                nickname = sdkUser.PlayerName ?? string.Empty;
+
+                var accessToken = AccountController.CreateLauncherTokenForUser(sdkUser.ID);
+                token = accessToken.Token;
+                Console.WriteLine($"[LAUNCHER] AuthSvr/Login -> uid={uid}, PASETO token len={token.Length}");
+            }
+            else
+            {
+                Console.WriteLine("[LAUNCHER] AuthSvr/Login -> no account in SdkUsers");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LAUNCHER] failed to read local user: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine($"[LAUNCHER] AuthSvr/Login failed: {ex.GetType().Name}: {ex.Message}");
         }
-
-        Console.WriteLine($"[LAUNCHER] AuthSvr/Login -> uid={uid} openid={openid}");
 
         return @"{
     ""result"": {
@@ -49,11 +61,11 @@ public class LauncherController : Controller
     ""game_id"": ""29080"",
     ""openid"": """ + openid + @""",
     ""uid"": """ + uid + @""",
-    ""biz_ticket"": """ + uid + @""",
+    ""biz_ticket"": """ + token + @""",
     ""expire_interval"": 86400,
     ""refresh_interval"": 604800,
-    ""login_key"": """ + uid + @""",
-    ""login_ticket"": """ + uid + @""",
+    ""login_key"": """ + token + @""",
+    ""login_ticket"": """ + token + @""",
     ""third_uid"": """ + uid + @""",
     ""user_name"": """ + nickname + @"""
 }";
