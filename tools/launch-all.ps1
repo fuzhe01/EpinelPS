@@ -260,6 +260,20 @@ for ($i = 1; $i -le 60; $i++) {
 if ($ok) { Ok "服务端已就绪（${i}s）" }
 else { Warn2 '端口未就绪，检查 logs\server-out.log'; exit 1 }
 
+# 认证链路自检：确认 AuthSvr/Login 能返回可解码的 PASETO token。
+# 这一步失败的话，游戏会报 "Login failed, please login from launcher again."
+$authCheck = Join-Path $Root 'tools\check-auth.ps1'
+if (Test-Path $authCheck) {
+    & pwsh -NoProfile -File $authCheck
+    if ($LASTEXITCODE -ne 0) {
+        Warn2 '认证自检未通过（见上方详情）。游戏可能登录失败。'
+        Warn2 '  · 若提示凭据为空/非 PASETO：服务端 exe 不是最新编译版本'
+        Warn2 '  · 若 token 解码失败：删掉 %APPDATA%\nikke_launcher\last_user.dat 和 psd.dat 后重登'
+    } else {
+        Ok '认证链路正常'
+    }
+}
+
 # ================= 6. 打开游戏 =================
 Step 6 '打开游戏启动器...'
 Write-Host ''
