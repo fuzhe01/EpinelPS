@@ -1,4 +1,4 @@
-﻿using EpinelPS.Data;
+using EpinelPS.Data;
 using EpinelPS.Database;
 using EpinelPS.Interfaces;
 using EpinelPS.Utils;
@@ -23,7 +23,13 @@ public class AuthController(IUserService UserService, GameContext db) : Controll
     /// </summary>
     /// <param name="req"></param>
     /// <returns></returns>
+    // Local build patch: the client calls "/v1/auth/logout" (LobbyHandler strips the "/v1"
+    // prefix and reports "No handler for: /auth/logout"), but upstream only registered
+    // "/v1/logout". The missing route made the client treat the session as broken and
+    // jump straight to the GameQuit screen instead of showing the lobby UI.
+    // Both paths are now accepted.
     [Route("/v1/logout")]
+    [Route("/v1/auth/logout")]
     [HttpPost]
     public ActionResult<ResLogout> Logout([FromBodyProtobuf] ReqLogout req)
     {

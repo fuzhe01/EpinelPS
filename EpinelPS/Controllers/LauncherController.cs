@@ -1,5 +1,6 @@
 using EpinelPS.Database;
 using Microsoft.AspNetCore.Mvc;
+using System.Text;
 
 namespace EpinelPS.Controllers;
 
@@ -9,20 +10,45 @@ public class LauncherController(GameContext dbContext) : Controller
 {
     private readonly GameContext _dbContext = dbContext;
 
+    // 官方 AuthSvr 的真实地址。hosts 把 www.jupiterlauncher.com 指向 127.0.0.1，
+    // 所以必须用真实 IP 直连 + 手动设置 Host 头，否则会转发给自己造成死循环。
+    private static readonly string[] OfficialAuthHosts =
+    {
+        "50.18.48.216",
+        "54.193.191.76",
+    };
+
     [HttpPost]
     [Route("fleet.auth.game.AuthSvr/Login")]
-    public string LauncherLogin()
+    public async Task<string> LauncherLogin()
     {
-        // Local build patch: upstream returned hardcoded empty credentials
-        // (openid/uid/biz_ticket/login_ticket/login_key all ""). The launcher hands those to the
-        // Level Infinite SDK, which passes them to the game as the account token. With an empty
-        // (or non-PASETO) value NetUtils.GetUser cannot decode it and the game shows
-        //   [SDK] INTL result failed. methodId 13101, retCode 1002
-        //   "Login failed, please login from launcher again."
-        //
-        // The token the server actually validates is the PASETO v4 local token produced by
-        // AccountController.CreateLauncherTokenForUser, so we emit that here. This makes the
-        // launcher's login self-sufficient: no manual /account/login call is needed.
+        // 读原始请求体（启动器发什么就转发什么，避免格式被改写）
+        string rawBody = string.Empty;
+        try
+        {
+            Request.EnableBuffering();
+            using var reader = new StreamReader(Request.Body, Encoding.UTF8, leaveOpen: true);
+            rawBody = await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LAUNCHER] read body failed: {ex.Message}");
+        }
+
+        Console.WriteLine($"[LAUNCHER] AuthSvr/Login body = {(rawBody.Length > 400 ? rawBody[..400] + "..." : rawBody)}");
+
+        // ── 优先：转发到官方，拿真正的 LevelInfinite ticket ──
+        // INTL SDK 会把这个 ticket 做 base64 解码后送到 gate，PASETO/uid 都不被接受。
+        var forwarded = await TryForwardToOfficial(rawBody);
+        if (forwarded is not null)
+        {
+            Console.WriteLine("[LAUNCHER] AuthSvr/Login -> forwarded to official OK");
+            return forwarded;
+        }
+
+        // ── 回落：本地 PASETO（官方不可达时，至少让 /account/getuserinfo 链路可用）──
+        Console.WriteLine("[LAUNCHER] official unreachable, falling back to local PASETO");
+
         string openid = string.Empty;
         string uid = string.Empty;
         string nickname = string.Empty;
@@ -40,16 +66,16 @@ public class LauncherController(GameContext dbContext) : Controller
 
                 var accessToken = AccountController.CreateLauncherTokenForUser(sdkUser.ID);
                 token = accessToken.Token;
-                Console.WriteLine($"[LAUNCHER] AuthSvr/Login -> uid={uid}, PASETO token len={token.Length}");
+                Console.WriteLine($"[LAUNCHER] fallback -> uid={uid}, PASETO len={token.Length}");
             }
             else
             {
-                Console.WriteLine("[LAUNCHER] AuthSvr/Login -> no account in SdkUsers");
+                Console.WriteLine("[LAUNCHER] fallback -> no account in SdkUsers");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LAUNCHER] AuthSvr/Login failed: {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine($"[LAUNCHER] fallback failed: {ex.GetType().Name}: {ex.Message}");
         }
 
         return @"{
@@ -69,6 +95,52 @@ public class LauncherController(GameContext dbContext) : Controller
     ""third_uid"": """ + uid + @""",
     ""user_name"": """ + nickname + @"""
 }";
+    }
+
+    /// <summary>
+    /// 把 AuthSvr/Login 转发到官方服务器。成功（error_code == 0 且有 biz_ticket）返回响应体，
+    /// 否则返回 null 让调用方回落。
+    /// </summary>
+    private static async Task<string?> TryForwardToOfficial(string rawBody)
+    {
+        foreach (var host in OfficialAuthHosts)
+        {
+            try
+            {
+                // handler 必须每次新建：using 释放 HttpClient 时会连带 dispose handler，
+                // 复用会在第二个 host 上抛 ObjectDisposedException。
+                using var handler = new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+                };
+                using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(12) };
+                using var req = new HttpRequestMessage(HttpMethod.Post,
+                    $"https://{host}/api/v1/fleet.auth.game.AuthSvr/Login");
+                req.Headers.Host = "www.jupiterlauncher.com";
+                req.Content = new StringContent(
+                    string.IsNullOrWhiteSpace(rawBody) ? "{}" : rawBody,
+                    Encoding.UTF8, "application/json");
+
+                using var resp = await client.SendAsync(req);
+                string body = await resp.Content.ReadAsStringAsync();
+
+                Console.WriteLine($"[LAUNCHER] official {host} -> {(int)resp.StatusCode} " +
+                                  $"{(body.Length > 240 ? body[..240] + "..." : body)}");
+
+                if ((int)resp.StatusCode == 200
+                    && body.Contains("\"error_code\":0")
+                    && body.Contains("biz_ticket"))
+                {
+                    return body;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LAUNCHER] official {host} failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        return null;
     }
 
     [HttpPost]

@@ -243,14 +243,21 @@ public class EventHelper
             // that is not blocked by one.
             var today = int.Parse(DateTime.Now.ToString("yyMMdd"));
 
-            bool IsResourceFromFuture(string? table)
+            // Local build patch (2026-11-19): a resource table with an embedded date
+            // ("event_261119") is a DYNAMIC per-day event sprite table. The installed client only
+            // ships the sprite tables that came with its own build, so a table named after ANY
+            // date - past, present or future - is missing on disk. The client then throws
+            //   FileNotFoundException: Localized sprite table not found: event_261119
+            // while preparing the lobby's Home view, which leaves the lobby background rendered
+            // but every UI element missing.
+            //
+            // We cannot know exactly which sprite tables the client has, so we reject every
+            // date-stamped table and keep only banners that reference a stable table.
+            bool IsDateStampedResource(string? table)
             {
                 if (string.IsNullOrEmpty(table)) return false;
                 // Expected forms: "event_261119", "event_261119_xxx"
-                var m = System.Text.RegularExpressions.Regex.Match(table, @"event_(\d{6})");
-                if (!m.Success) return false;
-                var yymmdd = int.Parse(m.Groups[1].Value);
-                return yymmdd > today;
+                return System.Text.RegularExpressions.Regex.IsMatch(table, @"event_\d{6}");
             }
 
             var candidates = lobbyPrivateBannerRecords.OrderByDescending(b => b.Id).ToList();
@@ -264,8 +271,9 @@ public class EventHelper
                     .ToList();
 
                 if (tables.Count == 0) return false;
-                // Reject banners that reference any future-dated sprite table.
-                return !tables.Any(IsResourceFromFuture);
+                // Reject banners that reference a date-stamped (per-day) sprite table, because
+                // the client cannot have that table on disk.
+                return !tables.Any(IsDateStampedResource);
             });
 
             if (chosen != null)

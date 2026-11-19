@@ -494,3 +494,6 @@ tools/*.json
 
 # 第三方 GM 工具包（本地保留，不入库）
 NIKKE-GM新版，适配WIN10和11/
+
+# 恢复产物（43MB 历史快照，不进版本库）
+recovered/
